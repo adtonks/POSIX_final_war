@@ -24,16 +24,18 @@ typedef struct f_arg {
 	pthread_mutex_t *mutex_res_arr;
 	int *lives_arr;
 	pthread_mutex_t *mutex_lives_arr;
+	int *become_POW_ptr;
+	pthread_mutex_t *mutex_become_POW;
 } F_arg;
 
 typedef struct s_arg {
 	int index;
 	int *res_arr;
 	pthread_mutex_t *mutex_res_arr;
-	int *lives_arr;
-	pthread_mutex_t *mutex_lives_arr;
 	int *eat_arr;
 	pthread_mutex_t *mutex_eat_arr;
+	int *become_POW_ptr;
+	pthread_mutex_t *mutex_become_POW;
 } S_arg;
 
 void tonks_sleep(int f_mus) {
@@ -58,6 +60,8 @@ void *farm (void *in_arg) {
 	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
 	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
 	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
+	int *become_POW_ptr = ((F_arg *) in_arg)->become_POW_ptr;
+	pthread_mutex_t *mutex_become_POW = ((F_arg *) in_arg)->mutex_become_POW;
 	int target_sol, i;
 
 	int f_ms, f_mus;
@@ -72,21 +76,31 @@ void *farm (void *in_arg) {
 		sem_post(sem_ptr);
 		/* small sleep to reduce chance that semaphore is re-taken */
 		usleep(5000);
-		/* update the resource array */
-		pthread_mutex_lock(mutex_res_arr+index);
-		res_arr[index]++;
-		pthread_mutex_unlock(mutex_res_arr+index);
 		/* find the target soldier - which is the next non-dead one */
 		for(i=index; i<index+Y; i++) {
 			target_sol = i%Y;
 			pthread_mutex_lock(mutex_lives_arr+target_sol);
-			if(lives_arr[target_sol] > 0)
+			if(lives_arr[target_sol] > 0) {
+				pthread_mutex_unlock(mutex_lives_arr+target_sol);
 				break;
+			}
 			pthread_mutex_unlock(mutex_lives_arr+target_sol);
 		}
 		/* increment that resource */
-		printf("Thread %d has produced %d resources total for soldier %d\n",
-				index, res_arr[index], target_sol);
+		pthread_mutex_lock(mutex_res_arr+target_sol);
+		res_arr[target_sol]++;
+		pthread_mutex_unlock(mutex_res_arr+target_sol);
+		printf("Farmer %d produced a resource for soldier %d\n",
+				index, target_sol);
+		printf("Soldier %d has %d lives\n",
+						target_sol, lives_arr[target_sol]);
+		/* check if thread should end */
+		pthread_mutex_lock(mutex_become_POW);
+		if(*become_POW_ptr == 1) {
+			pthread_mutex_unlock(mutex_become_POW);
+			pthread_exit(NULL);
+		}
+		pthread_mutex_unlock(mutex_become_POW);
 	}
 	return(NULL);
 }
@@ -95,10 +109,10 @@ void *sold (void *in_arg) {
 	int index = ((S_arg *) in_arg)->index;
 	int *res_arr = ((S_arg *) in_arg)->res_arr;
 	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
-	int *lives_arr = ((S_arg *) in_arg)->lives_arr;
-	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
 	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
 	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
+	int *become_POW_ptr = ((S_arg *) in_arg)->become_POW_ptr;
+	pthread_mutex_t *mutex_become_POW = ((S_arg *) in_arg)->mutex_become_POW;
 	/* loop through the sleep-eat-attack loop */
 	while(1) {
 		/* block until eating time (soldier is "sleeping" */
@@ -107,6 +121,7 @@ void *sold (void *in_arg) {
 			pthread_mutex_lock(mutex_eat_arr+index);
 			if(eat_arr[index] == 1) {
 				eat_arr[index] = 0;
+				pthread_mutex_unlock(mutex_eat_arr+index);
 				break;
 			}
 			pthread_mutex_unlock(mutex_eat_arr+index);
@@ -123,8 +138,14 @@ void *sold (void *in_arg) {
 					index, res_arr[index]);
 		}
 		pthread_mutex_unlock(mutex_res_arr+index);
-		/* unlock the eat array after attack result written */
 		pthread_mutex_unlock(mutex_eat_arr+index);
+		/* check if thread should end */
+		pthread_mutex_lock(mutex_become_POW);
+		if(*become_POW_ptr == 1) {
+			pthread_mutex_unlock(mutex_become_POW);
+			pthread_exit(NULL);
+		}
+		pthread_mutex_unlock(mutex_become_POW);
 	}
 	return(NULL);
 }
@@ -141,13 +162,8 @@ int check_no(const char *input) {
 }
 
 int main(int argc, char const *argv[]) {
-	int i, X, Y, pros_ind;
+	int i, j, X, Y, pros_ind, target;
 	pthread_mutexattr_t attr_mutex;
-	char *name = "/tmp/war_mem";
-	int fd_shm_sold = shm_open(name, O_CREAT | O_RDWR, 0666);
-	int *shm_sold;
-	int fd_mutex_shm_sold = shm_open(name, O_CREAT | O_RDWR, 0666);
-	pthread_mutex_t *mutex_shm_sold;
 	srand(time(NULL));
 	if(argc != 5) {
 		printf("Command line arguments incorrect\n");
@@ -179,21 +195,58 @@ int main(int argc, char const *argv[]) {
 		return(1);
 	}
 	printf("%d children and %d fighters\n", X, Y);
+
+	/* not setting following attribute results in undefined behavior
+	 * for mutexes that are in shared memory */
+	pthread_mutexattr_init(&attr_mutex);
+	pthread_mutexattr_setpshared(&attr_mutex, PTHREAD_PROCESS_SHARED);
+
 	/* setup the shared memory for soldier counts */
+	char *name_shm_sold = "/tmp/shm_sold";
+	int fd_shm_sold = shm_open(name_shm_sold, O_CREAT | O_RDWR, 0666);
 	ftruncate(fd_shm_sold, X*16);
-	shm_sold = mmap(NULL, X*16, PROT_WRITE | PROT_READ,
+	int *shm_sold = mmap(
+			NULL, X*16, PROT_WRITE | PROT_READ,
 			MAP_SHARED | MAP_ANONYMOUS, fd_shm_sold, 0);
 	for(i=0; i<X; i++)
 		shm_sold[i] = Y;
+
 	/* setup the shared memory for mutex for soldier counts */
+	char *name_mutex_shm_sold = "/tmp/mutex_shm_sold";
+	int fd_mutex_shm_sold =
+			shm_open(name_mutex_shm_sold, O_CREAT | O_RDWR, 0666);
 	ftruncate(fd_mutex_shm_sold, 256);
-	mutex_shm_sold = mmap(NULL, 256, PROT_WRITE | PROT_READ,
+	pthread_mutex_t *mutex_shm_sold = mmap(
+			NULL, 256, PROT_WRITE | PROT_READ,
 			MAP_SHARED | MAP_ANONYMOUS, fd_shm_sold, 0);
-	/* not setting following attribute results in undefined behavior */
-	pthread_mutexattr_init(&attr_mutex);
-	pthread_mutexattr_setpshared(&attr_mutex, PTHREAD_PROCESS_SHARED);
-	pthread_mutexattr_destroy(&attr_mutex);
 	pthread_mutex_init(mutex_shm_sold, &attr_mutex);
+
+	/* setup the shared memory for attack data */
+	char *name_shm_atk = "/tmp/shm_atk";
+	int fd_shm_atk = shm_open(name_shm_atk, O_CREAT | O_RDWR, 0666);
+	ftruncate(fd_shm_atk, 3*X*16);
+	int (*shm_atk)[3] = mmap(
+			NULL, 3*X*16, PROT_WRITE | PROT_READ,
+			MAP_SHARED | MAP_ANONYMOUS, fd_shm_atk, 0);
+	/* i: child sending attack */
+	/* j=0: attack points; j=1: attack target; j=2: received damage */
+	for(i=0; i<X; i++)
+		for(j=0; j<3; j++)
+			shm_atk[i][j] = 0;
+
+	/* setup the shared memory for mutex for attack data */
+	char *name_mutex_shm_atk = "/tmp/mutex_shm_atk";
+	int fd_mutex_shm_atk =
+			shm_open(name_mutex_shm_atk, O_CREAT | O_RDWR, 0666);
+	ftruncate(fd_mutex_shm_atk, 256);
+	pthread_mutex_t *mutex_shm_atk = mmap(
+			NULL, 256, PROT_WRITE | PROT_READ,
+			MAP_SHARED | MAP_ANONYMOUS, fd_shm_atk, 0);
+	pthread_mutex_init(mutex_shm_atk, &attr_mutex);
+
+	/* destroy the mutex attribute object */
+	pthread_mutexattr_destroy(&attr_mutex);
+
 	/* initialize array to hold PID of children */
 	int children[X];
 	for(i=0; i<X; i++)
@@ -205,12 +258,93 @@ int main(int argc, char const *argv[]) {
 	}
 	/* parent code */
 	if(children[X-1] != 0) {
+		int game_on = 1;
+		int draw = 1;
 		printf("Parent finished spawning\n");
-		sleep(5);
+		printf("#### 1 ####\n");
+		while(game_on) {
+			usleep(100000);
+			/* check if child has won */
+			game_on = 0;
+			for(i=0; i<X; i++) {
+				if(shm_atk[i][1] == -1) {
+					draw = 0;
+					break;
+				} else if(shm_sold[i] > 0) {
+					game_on = 1;
+					break;
+				}
+			}
+			printf("#### 2 ####\n");
+			if(!game_on)
+				break;
+			printf("#### 3 ####\n");
+			usleep(800000);
+			pthread_mutex_lock(mutex_shm_sold);
+			pthread_mutex_lock(mutex_shm_atk);
+			printf("#### 4 ####\n");
+			for(i=0; i<X; i++) {
+				printf("Child %d has %d soldiers\n", i, shm_sold[i]);
+				printf("Child %d tries to attack %d with %d points\n",
+						i, shm_atk[i][2], shm_atk[i][1]);
+			}
+			/* calculate the damages */
+			for(i=0; i<X; i++) {
+				/* check if there is attack to process */
+				if(shm_atk[i][1] > 0) {
+					target = shm_atk[i][2];
+					if(shm_atk[target][2] == target) {
+						/* children attack each other */
+						if(shm_atk[i][1] > shm_atk[target][1]) {
+							shm_atk[target][3] +=
+									shm_atk[i][1] - shm_atk[target][1];
+							/* reset attack points */
+							shm_atk[target][1] = 0;
+						} else {
+							/* points equal or opponent higher */
+							shm_atk[i][3] +=
+									shm_atk[target][1] - shm_atk[i][1];
+							/* reset attack points */
+							shm_atk[target][1] = 0;
+						}
+					} else {
+						shm_atk[target][3] += shm_atk[i][1];
+					}
+					/* reset attack points */
+					shm_atk[i][1] = 0;
+				}
+			}
+			printf("#### 5 ####\n");
+			pthread_mutex_unlock(mutex_shm_sold);
+			pthread_mutex_unlock(mutex_shm_atk);
+			printf("#### 6 ####\n");
+			usleep(100000);
+		}
+		printf("#### 7 ####\n");
+		if(draw) {
+			printf("Game ended in a draw\n");
+		} else {
+			printf("Child %d with PID %d has won\n", i, children[i]);
+		}
+
+		/* allow farmer threads to finish */
+		tonks_sleep(2500000);
+		/* unlink file descriptors */
+		unlink(name_shm_sold);
+		unlink(name_mutex_shm_sold);
+		unlink(name_shm_atk);
+		unlink(name_mutex_shm_atk);
+		/* destroy mutexes */
+		pthread_mutex_destroy(mutex_shm_sold);
+		pthread_mutex_destroy(mutex_shm_atk);
 	} else { /* child code */
 		printf("Child with PID %d and index %d created\n",
 						getpid(), pros_ind);
-		int target, target_sold;
+		int target, target_sold, my_sold, last_child, in_damage, offset;
+		int become_POW = 0;
+		int *become_POW_ptr = &become_POW;
+		pthread_mutex_t mem_mutex_become_POW;
+		pthread_mutex_init(&mem_mutex_become_POW, NULL);
 		int atk_pts = 0;
 		/* semaphore for 6 farmers */
 		sem_t sem;
@@ -248,6 +382,8 @@ int main(int argc, char const *argv[]) {
 			f_arg_arr[i]->mutex_res_arr = mutex_res_arr;
 			f_arg_arr[i]->lives_arr = lives_arr;
 			f_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
+			f_arg_arr[i]->become_POW_ptr = become_POW_ptr;
+			f_arg_arr[i]->mutex_become_POW = &mem_mutex_become_POW;
 		}
 		/* prepare soldier threads */
 		pthread_t sold_t[Y];
@@ -257,10 +393,10 @@ int main(int argc, char const *argv[]) {
 			s_arg_arr[i]->index = i;
 			s_arg_arr[i]->res_arr = res_arr;
 			s_arg_arr[i]->mutex_res_arr = mutex_res_arr;
-			s_arg_arr[i]->lives_arr = lives_arr;
-			s_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
 			s_arg_arr[i]->eat_arr = eat_arr;
 			s_arg_arr[i]->mutex_eat_arr = mutex_eat_arr;
+			s_arg_arr[i]->become_POW_ptr = become_POW_ptr;
+			s_arg_arr[i]->mutex_become_POW = &mem_mutex_become_POW;
 		}
 		/* create the farmer threads */
 		for(i=0; i<Y; i++) {
@@ -289,38 +425,121 @@ int main(int argc, char const *argv[]) {
 				}
 				pthread_mutex_unlock(mutex_eat_arr+i);
 			}
-			/* send the attack */
-			while(1) {
-				target = rand() % X;
-				/* read from shared memory using mutex */
-				pthread_mutex_lock(mutex_shm_sold);
+			/* choose the victim */
+			/* read from shared memory using mutex */
+			pthread_mutex_lock(mutex_shm_sold);
+			offset = rand() % X;
+			last_child = 1;
+			for(i=0; i<X; i++) {
+				target = (i + offset) % X;
+				/* find out number of remaining soldiers */
 				target_sold = shm_sold[target];
-				pthread_mutex_unlock(mutex_shm_sold);
-				if((target != pros_ind) && (target_sold > 0))
+				/* no suicide or mutilation permitted */
+				if((target != pros_ind) && (target_sold > 0)) {
+					last_child = 0;
 					break;
+				}
 			}
-			printf("%d soldiers in process %d attacked %d\n",
-					atk_pts, getpid(), target);
+			pthread_mutex_unlock(mutex_shm_sold);
+			if(last_child) {
+				printf("Winner detected\n");
+				/* send "attack" of -1 to tell parent that it's won */
+				pthread_mutex_lock(mutex_shm_atk);
+				shm_atk[pros_ind][1] = -1;
+				pthread_mutex_unlock(mutex_shm_atk);
+				break;
+			}
+			/* send the attack */
+			pthread_mutex_lock(mutex_shm_atk);
+			shm_atk[pros_ind][1] += atk_pts;
+			shm_atk[pros_ind][2] = target;
+			pthread_mutex_unlock(mutex_shm_atk);
+			printf("Child %d sends attack of %d to %d\n",
+					pros_ind, atk_pts, target);
+
 			/* wait for parent to process the attacks */
 			usleep(200000);
+
 			/* receive the attack */
+			pthread_mutex_lock(mutex_shm_atk);
+			in_damage = shm_atk[pros_ind][3];
+			shm_atk[pros_ind][3] = 0;
+			pthread_mutex_unlock(mutex_shm_atk);
+			/* assign damage sequentially */
+			for(i=0; (i<Y) && (0<in_damage); i++) {
+				pthread_mutex_lock(mutex_lives_arr+i);
+				/* damage the soldier if possible */
+				while((0<lives_arr[i]) && (0<in_damage)) {
+					lives_arr[i]--;
+					in_damage--;
+				}
+				pthread_mutex_unlock(mutex_lives_arr+i);
+			}
 
-			/* check that at least one soldier still alive */
+			/* update the soldier count in shared array */
+			my_sold = 0;
+			for(i=0; i<Y; i++) {
+				pthread_mutex_lock(mutex_lives_arr+i);
+				/* count the lives */
+				if(lives_arr[i] > 0) {
+					my_sold++;
+					pthread_mutex_unlock(mutex_lives_arr+i);
+				}
+				pthread_mutex_unlock(mutex_lives_arr+i);
+			}
+			pthread_mutex_lock(mutex_shm_sold);
+			shm_sold[pros_ind] = my_sold;
+			pthread_mutex_unlock(mutex_shm_sold);
+			/* end process if all soldiers dead or this is last child */
+			if(!(0<my_sold)) {
+				break;
+			} else {
+				printf("Checking other children\n");
+				last_child = 1;
+				/* check number of alive children */
+				pthread_mutex_lock(mutex_shm_sold);
+				for(i=0; i<X; i++) {
+					/* find out number of remaining soldiers */
+					if((i != pros_ind) && (0 < shm_sold[i])) {
+						last_child = 0;
+						break;
+					}
+				}
+				pthread_mutex_unlock(mutex_shm_sold);
+				if(last_child) {
+					printf("Winner detected\n");
+					/* send "attack" of -1 to tell parent that it's won */
+					pthread_mutex_lock(mutex_shm_atk);
+					shm_atk[pros_ind][1] = -1;
+					pthread_mutex_unlock(mutex_shm_atk);
+					break;
+				}
+			}
 		}
-
+		printf("Child %d is ending\n", pros_ind);
 		/* wait for threads to complete */
+		/* become_POW = 1; */
+		for(i=0; i<Y; i++) {
+			pthread_cancel(farm_t[i]);
+			pthread_cancel(sold_t[i]);
+		}
 		for(i=0; i<Y; i++) {
 			pthread_join(farm_t[i], NULL);
+			pthread_join(sold_t[i], NULL);
 		}
-
 		/* free everything */
 		sem_destroy(&sem);
 		for(i=0; i<Y; i++) {
-			pthread_mutex_destroy(mutex_eat_arr+i);
 			pthread_mutex_destroy(mutex_res_arr+i);
+			pthread_mutex_destroy(mutex_lives_arr+i);
+			pthread_mutex_destroy(mutex_eat_arr+i);
+		}
+		for(i=0; i<Y; i++) {
+			free(f_arg_arr[i]);
+			free(s_arg_arr[i]);
 		}
 
+
 	}
-	shm_unlink(name);
 	return(0);
 }
