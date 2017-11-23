@@ -17,18 +17,21 @@
 
 /* use a struct to pass arguments; dispenses with global variables */
 typedef struct f_arg {
+	int Y;
 	int index;
-	int *res_arr;
-	int *res_to_sol_arr;
 	sem_t *sem_ptr;
+	int *res_arr;
 	pthread_mutex_t *mutex_res_arr;
+	int *lives_arr;
+	pthread_mutex_t *mutex_lives_arr;
 } F_arg;
 
 typedef struct s_arg {
 	int index;
 	int *res_arr;
 	pthread_mutex_t *mutex_res_arr;
-	int *res_to_sol_arr;
+	int *lives_arr;
+	pthread_mutex_t *mutex_lives_arr;
 	int *eat_arr;
 	pthread_mutex_t *mutex_eat_arr;
 } S_arg;
@@ -48,11 +51,14 @@ void tonks_sleep(int f_mus) {
 }
 
 void *farm (void *in_arg) {
+	int Y = ((F_arg *) in_arg)->Y;
 	int index = ((F_arg *) in_arg)->index;
 	int *res_arr = ((F_arg *) in_arg)->res_arr;
-	int *res_to_sol_arr = ((F_arg *) in_arg)->res_to_sol_arr;
-	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
 	pthread_mutex_t *mutex_res_arr = ((F_arg *) in_arg)->mutex_res_arr;
+	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
+	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
+	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
+	int target_sol, i;
 
 	int f_ms, f_mus;
 	while(1) {
@@ -70,8 +76,17 @@ void *farm (void *in_arg) {
 		pthread_mutex_lock(mutex_res_arr+index);
 		res_arr[index]++;
 		pthread_mutex_unlock(mutex_res_arr+index);
+		/* find the target soldier - which is the next non-dead one */
+		for(i=index; i<index+Y; i++) {
+			target_sol = i%Y;
+			pthread_mutex_lock(mutex_lives_arr+target_sol);
+			if(lives_arr[target_sol] > 0)
+				break;
+			pthread_mutex_unlock(mutex_lives_arr+target_sol);
+		}
+		/* increment that resource */
 		printf("Thread %d has produced %d resources total for soldier %d\n",
-				index, res_arr[index], res_to_sol_arr[index]);
+				index, res_arr[index], target_sol);
 	}
 	return(NULL);
 }
@@ -79,8 +94,9 @@ void *farm (void *in_arg) {
 void *sold (void *in_arg) {
 	int index = ((S_arg *) in_arg)->index;
 	int *res_arr = ((S_arg *) in_arg)->res_arr;
-	int *res_to_sol_arr = ((S_arg *) in_arg)->res_to_sol_arr;
 	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
+	int *lives_arr = ((S_arg *) in_arg)->lives_arr;
+	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
 	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
 	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
 	/* loop through the sleep-eat-attack loop */
@@ -192,48 +208,57 @@ int main(int argc, char const *argv[]) {
 		printf("Parent finished spawning\n");
 		sleep(5);
 	} else { /* child code */
+		printf("Child with PID %d and index %d created\n",
+						getpid(), pros_ind);
 		int target, target_sold;
 		int atk_pts = 0;
+		/* semaphore for 6 farmers */
+		sem_t sem;
+		sem_init(&sem, 0, 6);
+		/* resource array */
 		int res_arr[Y];
 		for(i=0; i<Y; i++)
 			res_arr[i] = 0;
-		int res_to_sol_arr[Y];
-		for(i=0; i<Y; i++)
-			res_to_sol_arr[i] = i;
-		sem_t sem;
-		sem_init(&sem, 0, 6);
 		pthread_mutex_t mutex_res_arr[Y];
 		for(i=0; i<Y; i++)
 			pthread_mutex_init(mutex_res_arr+i, NULL);
-		pthread_t farm_t[Y];
-		F_arg *f_arg_arr[Y];
-		/* soldier specific variables */
-		pthread_t sold_t[Y];
-		S_arg *s_arg_arr[Y];
+		/* soldier lives array */
+		int lives_arr[Y];
+		for(i=0; i<Y; i++)
+			lives_arr[i] = 3;
+		pthread_mutex_t mutex_lives_arr[Y];
+		for(i=0; i<Y; i++)
+			pthread_mutex_init(mutex_lives_arr+i, NULL);
+		/* soldier eating time array */
 		int eat_arr[Y];
 		for(i=0; i<Y; i++)
 			eat_arr[i] = 0;
 		pthread_mutex_t mutex_eat_arr[Y];
 		for(i=0; i<Y; i++)
 			pthread_mutex_init(mutex_eat_arr+i, NULL);
-		printf("Child with PID %d and index %d created\n",
-				getpid(), pros_ind);
-		/* initialize the farmer thread arguments */
+		/* prepare farmer threads */
+		pthread_t farm_t[Y];
+		F_arg *f_arg_arr[Y];
 		for(i=0; i<Y; i++) {
 			f_arg_arr[i] = malloc(sizeof(F_arg));
+			f_arg_arr[i]->Y = Y;
 			f_arg_arr[i]->index = i;
-			f_arg_arr[i]->res_arr = res_arr;
-			f_arg_arr[i]->res_to_sol_arr = res_to_sol_arr;
 			f_arg_arr[i]->sem_ptr = &sem;
+			f_arg_arr[i]->res_arr = res_arr;
 			f_arg_arr[i]->mutex_res_arr = mutex_res_arr;
+			f_arg_arr[i]->lives_arr = lives_arr;
+			f_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
 		}
-		/* initialize the soldier thread arguments */
+		/* prepare soldier threads */
+		pthread_t sold_t[Y];
+		S_arg *s_arg_arr[Y];
 		for(i=0; i<Y; i++) {
 			s_arg_arr[i] = malloc(sizeof(S_arg));
 			s_arg_arr[i]->index = i;
 			s_arg_arr[i]->res_arr = res_arr;
-			s_arg_arr[i]->res_to_sol_arr = res_to_sol_arr;
 			s_arg_arr[i]->mutex_res_arr = mutex_res_arr;
+			s_arg_arr[i]->lives_arr = lives_arr;
+			s_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
 			s_arg_arr[i]->eat_arr = eat_arr;
 			s_arg_arr[i]->mutex_eat_arr = mutex_eat_arr;
 		}
@@ -246,7 +271,7 @@ int main(int argc, char const *argv[]) {
 			assert(pthread_create(sold_t + i, NULL, sold, (void *) s_arg_arr[i]) == 0);
 		}
 		while(1) {
-			usleep(900000);
+			usleep(700000);
 			/* wake the soldiers */
 			for(i=0; i<Y; i++) {
 				pthread_mutex_lock(mutex_eat_arr+i);
@@ -264,6 +289,7 @@ int main(int argc, char const *argv[]) {
 				}
 				pthread_mutex_unlock(mutex_eat_arr+i);
 			}
+			/* send the attack */
 			while(1) {
 				target = rand() % X;
 				/* read from shared memory using mutex */
@@ -273,9 +299,13 @@ int main(int argc, char const *argv[]) {
 				if((target != pros_ind) && (target_sold > 0))
 					break;
 			}
-			printf("%d soldiers in process %d were able to attack\n",
-					atk_pts, getpid());
-			printf("Chosen target is process %d\n", target);
+			printf("%d soldiers in process %d attacked %d\n",
+					atk_pts, getpid(), target);
+			/* wait for parent to process the attacks */
+			usleep(200000);
+			/* receive the attack */
+
+			/* check that at least one soldier still alive */
 		}
 
 		/* wait for threads to complete */
