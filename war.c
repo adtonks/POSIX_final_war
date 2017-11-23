@@ -12,6 +12,8 @@
 #include <assert.h>
 #include <unistd.h>
 #include <semaphore.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 /* use a struct to pass arguments; dispenses with global variables */
 typedef struct f_arg {
@@ -57,7 +59,6 @@ void *farm (void *in_arg) {
 		sem_wait(sem_ptr);
 		/* begin critical section */
 		/* the farmer has been woken up, to farm for f_ms milliseconds */
-		srand(time(NULL));
 		f_ms = 400 + (rand()%1800);
 		/* produce the resource */
 		tonks_sleep(f_ms*1000);
@@ -124,7 +125,14 @@ int check_no(const char *input) {
 }
 
 int main(int argc, char const *argv[]) {
-	int i, X, Y;
+	int i, X, Y, pros_ind;
+	pthread_mutexattr_t attr_mutex;
+	char *name = "/tmp/war_mem";
+	int fd_shm_sold = shm_open(name, O_CREAT | O_RDWR, 0666);
+	int *shm_sold;
+	int fd_mutex_shm_sold = shm_open(name, O_CREAT | O_RDWR, 0666);
+	pthread_mutex_t *mutex_shm_sold;
+	srand(time(NULL));
 	if(argc != 5) {
 		printf("Command line arguments incorrect\n");
 		return(1);
@@ -155,18 +163,36 @@ int main(int argc, char const *argv[]) {
 		return(1);
 	}
 	printf("%d children and %d fighters\n", X, Y);
+	/* setup the shared memory for soldier counts */
+	ftruncate(fd_shm_sold, X*16);
+	shm_sold = mmap(NULL, X*16, PROT_WRITE | PROT_READ,
+			MAP_SHARED | MAP_ANONYMOUS, fd_shm_sold, 0);
+	for(i=0; i<X; i++)
+		shm_sold[i] = Y;
+	/* setup the shared memory for mutex for soldier counts */
+	ftruncate(fd_mutex_shm_sold, 256);
+	mutex_shm_sold = mmap(NULL, 256, PROT_WRITE | PROT_READ,
+			MAP_SHARED | MAP_ANONYMOUS, fd_shm_sold, 0);
+	/* not setting following attribute results in undefined behavior */
+	pthread_mutexattr_init(&attr_mutex);
+	pthread_mutexattr_setpshared(&attr_mutex, PTHREAD_PROCESS_SHARED);
+	pthread_mutexattr_destroy(&attr_mutex);
+	pthread_mutex_init(mutex_shm_sold, &attr_mutex);
+	/* initialize array to hold PID of children */
 	int children[X];
 	for(i=0; i<X; i++)
-		children[X] = 0;
-	for(i=0; i<X; i++) {
-		children[i] = fork();
-		if(children[i] == 0)
+		children[i] = 0;
+	for(pros_ind=0; pros_ind<X; pros_ind++) {
+		children[pros_ind] = fork();
+		if(children[pros_ind] == 0)
 			break;
 	}
 	/* parent code */
 	if(children[X-1] != 0) {
 		printf("Parent finished spawning\n");
+		sleep(5);
 	} else { /* child code */
+		int target, target_sold;
 		int atk_pts = 0;
 		int res_arr[Y];
 		for(i=0; i<Y; i++)
@@ -190,7 +216,8 @@ int main(int argc, char const *argv[]) {
 		pthread_mutex_t mutex_eat_arr[Y];
 		for(i=0; i<Y; i++)
 			pthread_mutex_init(mutex_eat_arr+i, NULL);
-		printf("Child with PID %d created\n", getpid());
+		printf("Child with PID %d and index %d created\n",
+				getpid(), pros_ind);
 		/* initialize the farmer thread arguments */
 		for(i=0; i<Y; i++) {
 			f_arg_arr[i] = malloc(sizeof(F_arg));
@@ -215,11 +242,9 @@ int main(int argc, char const *argv[]) {
 			assert(pthread_create(farm_t + i, NULL, farm, (void *) f_arg_arr[i]) == 0);
 		}
 		/* create the soldier threads */
-
 		for(i=0; i<Y; i++) {
 			assert(pthread_create(sold_t + i, NULL, sold, (void *) s_arg_arr[i]) == 0);
 		}
-
 		while(1) {
 			usleep(900000);
 			/* wake the soldiers */
@@ -239,8 +264,18 @@ int main(int argc, char const *argv[]) {
 				}
 				pthread_mutex_unlock(mutex_eat_arr+i);
 			}
+			while(1) {
+				target = rand() % X;
+				/* read from shared memory using mutex */
+				pthread_mutex_lock(mutex_shm_sold);
+				target_sold = shm_sold[target];
+				pthread_mutex_unlock(mutex_shm_sold);
+				if((target != pros_ind) && (target_sold > 0))
+					break;
+			}
 			printf("%d soldiers in process %d were able to attack\n",
 					atk_pts, getpid());
+			printf("Chosen target is process %d\n", target);
 		}
 
 		/* wait for threads to complete */
@@ -256,6 +291,6 @@ int main(int argc, char const *argv[]) {
 		}
 
 	}
-
+	shm_unlink(name);
 	return(0);
 }
