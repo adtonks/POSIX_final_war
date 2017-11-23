@@ -63,13 +63,13 @@ void *farm (void *in_arg) {
 	int *become_POW_ptr = ((F_arg *) in_arg)->become_POW_ptr;
 	pthread_mutex_t *mutex_become_POW = ((F_arg *) in_arg)->mutex_become_POW;
 	int target_sol, i;
-
 	int f_ms, f_mus;
 	while(1) {
 		sem_wait(sem_ptr);
 		/* begin critical section */
 		/* the farmer has been woken up, to farm for f_ms milliseconds */
 		f_ms = 400 + (rand()%1800);
+		printf("Sleep for %d ms\n", f_ms);
 		/* produce the resource */
 		tonks_sleep(f_ms*1000);
 		/* end critical section */
@@ -85,6 +85,8 @@ void *farm (void *in_arg) {
 				break;
 			}
 			pthread_mutex_unlock(mutex_lives_arr+target_sol);
+			if(i == index+Y-1)
+				pthread_exit(NULL);
 		}
 		/* increment that resource */
 		pthread_mutex_lock(mutex_res_arr+target_sol);
@@ -164,7 +166,6 @@ int check_no(const char *input) {
 int main(int argc, char const *argv[]) {
 	int i, j, X, Y, pros_ind, target;
 	pthread_mutexattr_t attr_mutex;
-	srand(time(NULL));
 	if(argc != 5) {
 		printf("Command line arguments incorrect\n");
 		return(1);
@@ -293,7 +294,8 @@ int main(int argc, char const *argv[]) {
 				/* check if there is attack to process */
 				if(shm_atk[i][1] > 0) {
 					target = shm_atk[i][2];
-					if(shm_atk[target][2] == target) {
+					if(shm_atk[target][2] == i) {
+						printf("Processes attack each other");
 						/* children attack each other */
 						if(shm_atk[i][1] > shm_atk[target][1]) {
 							shm_atk[target][3] +=
@@ -327,8 +329,8 @@ int main(int argc, char const *argv[]) {
 			printf("Child %d with PID %d has won\n", i, children[i]);
 		}
 
-		/* allow farmer threads to finish */
-		tonks_sleep(2500000);
+		/* small delay to prevent orphan processes */
+		usleep(100000);
 		/* unlink file descriptors */
 		unlink(name_shm_sold);
 		unlink(name_mutex_shm_sold);
@@ -338,6 +340,8 @@ int main(int argc, char const *argv[]) {
 		pthread_mutex_destroy(mutex_shm_sold);
 		pthread_mutex_destroy(mutex_shm_atk);
 	} else { /* child code */
+		/* seed must be different for each process */
+		srand(time(NULL) + pros_ind);
 		printf("Child with PID %d and index %d created\n",
 						getpid(), pros_ind);
 		int target, target_sold, my_sold, last_child, in_damage, offset;
@@ -465,6 +469,7 @@ int main(int argc, char const *argv[]) {
 			in_damage = shm_atk[pros_ind][3];
 			shm_atk[pros_ind][3] = 0;
 			pthread_mutex_unlock(mutex_shm_atk);
+			printf("Child %d receives %d damage\n", pros_ind, in_damage);
 			/* assign damage sequentially */
 			for(i=0; (i<Y) && (0<in_damage); i++) {
 				pthread_mutex_lock(mutex_lives_arr+i);
