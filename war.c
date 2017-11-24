@@ -24,8 +24,6 @@ typedef struct f_arg {
 	pthread_mutex_t *mutex_res_arr;
 	int *lives_arr;
 	pthread_mutex_t *mutex_lives_arr;
-	int *become_POW_ptr;
-	pthread_mutex_t *mutex_become_POW;
 } F_arg;
 
 typedef struct s_arg {
@@ -34,8 +32,6 @@ typedef struct s_arg {
 	pthread_mutex_t *mutex_res_arr;
 	int *eat_arr;
 	pthread_mutex_t *mutex_eat_arr;
-	int *become_POW_ptr;
-	pthread_mutex_t *mutex_become_POW;
 } S_arg;
 
 void tonks_sleep(int f_mus) {
@@ -60,8 +56,6 @@ void *farm (void *in_arg) {
 	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
 	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
 	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
-	int *become_POW_ptr = ((F_arg *) in_arg)->become_POW_ptr;
-	pthread_mutex_t *mutex_become_POW = ((F_arg *) in_arg)->mutex_become_POW;
 	int target_sol, i;
 	int f_ms, f_mus;
 	while(1) {
@@ -95,14 +89,7 @@ void *farm (void *in_arg) {
 		printf("Farmer %d produced a resource for soldier %d\n",
 				index, target_sol);
 		printf("Soldier %d has %d lives\n",
-						target_sol, lives_arr[target_sol]);
-		/* check if thread should end */
-		pthread_mutex_lock(mutex_become_POW);
-		if(*become_POW_ptr == 1) {
-			pthread_mutex_unlock(mutex_become_POW);
-			pthread_exit(NULL);
-		}
-		pthread_mutex_unlock(mutex_become_POW);
+				target_sol, lives_arr[target_sol]);
 	}
 	return(NULL);
 }
@@ -113,8 +100,6 @@ void *sold (void *in_arg) {
 	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
 	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
 	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
-	int *become_POW_ptr = ((S_arg *) in_arg)->become_POW_ptr;
-	pthread_mutex_t *mutex_become_POW = ((S_arg *) in_arg)->mutex_become_POW;
 	/* loop through the sleep-eat-attack loop */
 	while(1) {
 		/* block until eating time (soldier is "sleeping" */
@@ -141,13 +126,6 @@ void *sold (void *in_arg) {
 		}
 		pthread_mutex_unlock(mutex_res_arr+index);
 		pthread_mutex_unlock(mutex_eat_arr+index);
-		/* check if thread should end */
-		pthread_mutex_lock(mutex_become_POW);
-		if(*become_POW_ptr == 1) {
-			pthread_mutex_unlock(mutex_become_POW);
-			pthread_exit(NULL);
-		}
-		pthread_mutex_unlock(mutex_become_POW);
 	}
 	return(NULL);
 }
@@ -345,10 +323,6 @@ int main(int argc, char const *argv[]) {
 		printf("Child with PID %d and index %d created\n",
 						getpid(), pros_ind);
 		int target, target_sold, my_sold, last_child, in_damage, offset;
-		int become_POW = 0;
-		int *become_POW_ptr = &become_POW;
-		pthread_mutex_t mem_mutex_become_POW;
-		pthread_mutex_init(&mem_mutex_become_POW, NULL);
 		int atk_pts = 0;
 		/* semaphore for 6 farmers */
 		sem_t sem;
@@ -386,8 +360,6 @@ int main(int argc, char const *argv[]) {
 			f_arg_arr[i]->mutex_res_arr = mutex_res_arr;
 			f_arg_arr[i]->lives_arr = lives_arr;
 			f_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
-			f_arg_arr[i]->become_POW_ptr = become_POW_ptr;
-			f_arg_arr[i]->mutex_become_POW = &mem_mutex_become_POW;
 		}
 		/* prepare soldier threads */
 		pthread_t sold_t[Y];
@@ -399,8 +371,6 @@ int main(int argc, char const *argv[]) {
 			s_arg_arr[i]->mutex_res_arr = mutex_res_arr;
 			s_arg_arr[i]->eat_arr = eat_arr;
 			s_arg_arr[i]->mutex_eat_arr = mutex_eat_arr;
-			s_arg_arr[i]->become_POW_ptr = become_POW_ptr;
-			s_arg_arr[i]->mutex_become_POW = &mem_mutex_become_POW;
 		}
 		/* create the farmer threads */
 		for(i=0; i<Y; i++) {
@@ -523,7 +493,6 @@ int main(int argc, char const *argv[]) {
 		}
 		printf("Child %d is ending\n", pros_ind);
 		/* wait for threads to complete */
-		/* become_POW = 1; */
 		for(i=0; i<Y; i++) {
 			pthread_cancel(farm_t[i]);
 			pthread_cancel(sold_t[i]);
