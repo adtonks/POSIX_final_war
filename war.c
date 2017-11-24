@@ -32,6 +32,8 @@ typedef struct s_arg {
 	pthread_mutex_t *mutex_res_arr;
 	int *eat_arr;
 	pthread_mutex_t *mutex_eat_arr;
+	int *lives_arr;
+	pthread_mutex_t *mutex_lives_arr;
 } S_arg;
 
 void tonks_sleep(int f_mus) {
@@ -51,11 +53,11 @@ void tonks_sleep(int f_mus) {
 void *farm (void *in_arg) {
 	int Y = ((F_arg *) in_arg)->Y;
 	int index = ((F_arg *) in_arg)->index;
+	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
 	int *res_arr = ((F_arg *) in_arg)->res_arr;
 	pthread_mutex_t *mutex_res_arr = ((F_arg *) in_arg)->mutex_res_arr;
 	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
 	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
-	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
 	int target_sol, i;
 	int f_ms, f_mus;
 	while(1) {
@@ -63,7 +65,6 @@ void *farm (void *in_arg) {
 		/* begin critical section */
 		/* the farmer has been woken up, to farm for f_ms milliseconds */
 		f_ms = 400 + (rand()%1800);
-		printf("Sleep for %d ms\n", f_ms);
 		/* produce the resource */
 		tonks_sleep(f_ms*1000);
 		/* end critical section */
@@ -79,17 +80,15 @@ void *farm (void *in_arg) {
 				break;
 			}
 			pthread_mutex_unlock(mutex_lives_arr+target_sol);
-			if(i == index+Y-1)
+			if(i == index+Y-1) {
+				/* end thread if there are no soldiers to produce for */
 				pthread_exit(NULL);
+			}
 		}
 		/* increment that resource */
 		pthread_mutex_lock(mutex_res_arr+target_sol);
 		res_arr[target_sol]++;
 		pthread_mutex_unlock(mutex_res_arr+target_sol);
-		printf("Farmer %d produced a resource for soldier %d\n",
-				index, target_sol);
-		printf("Soldier %d has %d lives\n",
-				target_sol, lives_arr[target_sol]);
 	}
 	return(NULL);
 }
@@ -100,6 +99,8 @@ void *sold (void *in_arg) {
 	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
 	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
 	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
+	int *lives_arr = ((S_arg *) in_arg)->lives_arr;
+	pthread_mutex_t *mutex_lives_arr = ((S_arg *) in_arg)->mutex_lives_arr;
 	/* loop through the sleep-eat-attack loop */
 	while(1) {
 		/* block until eating time (soldier is "sleeping" */
@@ -115,17 +116,22 @@ void *sold (void *in_arg) {
 			/* small sleep to prevent mutex re-take if write needed */
 			usleep(5000);
 		}
+		/* end the thread if soldier is dead */
+		pthread_mutex_lock(mutex_lives_arr+index);
+		if(lives_arr[index] == 0) {
+			pthread_mutex_unlock(mutex_lives_arr+index);
+			pthread_exit(NULL);
+		}
+		pthread_mutex_unlock(mutex_lives_arr+index);
+
 		/* try to eat the resource */
 		pthread_mutex_lock(mutex_res_arr+index);
 		if(res_arr[index] > 0) {
 			res_arr[index]--;
 			/* write attack to eat array */
 			eat_arr[index] = -1;
-			printf("Soldier %d attacks, has %d resources left\n",
-					index, res_arr[index]);
 		}
 		pthread_mutex_unlock(mutex_res_arr+index);
-		pthread_mutex_unlock(mutex_eat_arr+index);
 	}
 	return(NULL);
 }
@@ -173,7 +179,6 @@ int main(int argc, char const *argv[]) {
 		printf("Must have minimum 1 fighter per child\n");
 		return(1);
 	}
-	printf("%d children and %d fighters\n", X, Y);
 
 	/* not setting following attribute results in undefined behavior
 	 * for mutexes that are in shared memory */
@@ -239,68 +244,77 @@ int main(int argc, char const *argv[]) {
 	if(children[X-1] != 0) {
 		int game_on = 1;
 		int draw = 1;
-		printf("Parent finished spawning\n");
-		printf("#### 1 ####\n");
 		while(game_on) {
 			usleep(100000);
 			/* check if child has won */
 			game_on = 0;
 			for(i=0; i<X; i++) {
+				pthread_mutex_lock(mutex_shm_sold);
+				pthread_mutex_lock(mutex_shm_atk);
 				if(shm_atk[i][1] == -1) {
 					draw = 0;
+					pthread_mutex_unlock(mutex_shm_atk);
+					pthread_mutex_unlock(mutex_shm_sold);
 					break;
 				} else if(shm_sold[i] > 0) {
 					game_on = 1;
+					pthread_mutex_unlock(mutex_shm_atk);
+					pthread_mutex_unlock(mutex_shm_sold);
 					break;
 				}
+				pthread_mutex_unlock(mutex_shm_atk);
+				pthread_mutex_unlock(mutex_shm_sold);
 			}
-			printf("#### 2 ####\n");
 			if(!game_on)
 				break;
-			printf("#### 3 ####\n");
-			usleep(800000);
+			printf("### BEGIN ROUND ###\n");
+			printf("Soldiers remaining:");
+			for(i=0; i<X; i++)
+				printf(" [%d]", shm_sold[i]);
+			printf("\n");
+			usleep(500000);
 			pthread_mutex_lock(mutex_shm_sold);
 			pthread_mutex_lock(mutex_shm_atk);
-			printf("#### 4 ####\n");
-			for(i=0; i<X; i++) {
-				printf("Child %d has %d soldiers\n", i, shm_sold[i]);
-				printf("Child %d tries to attack %d with %d points\n",
-						i, shm_atk[i][2], shm_atk[i][1]);
-			}
+
 			/* calculate the damages */
 			for(i=0; i<X; i++) {
 				/* check if there is attack to process */
 				if(shm_atk[i][1] > 0) {
 					target = shm_atk[i][2];
 					if(shm_atk[target][2] == i) {
-						printf("Processes attack each other");
 						/* children attack each other */
 						if(shm_atk[i][1] > shm_atk[target][1]) {
 							shm_atk[target][3] +=
 									shm_atk[i][1] - shm_atk[target][1];
+							printf("Child %d damages %d with %d points\n",
+									i, target, shm_atk[target][3]);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
-						} else {
+						} else if(shm_atk[i][1] < shm_atk[target][1]) {
 							/* points equal or opponent higher */
 							shm_atk[i][3] +=
 									shm_atk[target][1] - shm_atk[i][1];
+							printf("Child %d damages %d with %d points\n",
+									target, i, shm_atk[i][3]);
 							/* reset attack points */
+							shm_atk[target][1] = 0;
+						} else {
 							shm_atk[target][1] = 0;
 						}
 					} else {
 						shm_atk[target][3] += shm_atk[i][1];
+						printf("Child %d damages %d with %d points\n",
+								i, target, shm_atk[target][3]);
 					}
 					/* reset attack points */
 					shm_atk[i][1] = 0;
 				}
 			}
-			printf("#### 5 ####\n");
-			pthread_mutex_unlock(mutex_shm_sold);
 			pthread_mutex_unlock(mutex_shm_atk);
-			printf("#### 6 ####\n");
-			usleep(100000);
+			pthread_mutex_unlock(mutex_shm_sold);
+			usleep(400000);
+			printf("### END ROUND ###\n");
 		}
-		printf("#### 7 ####\n");
 		if(draw) {
 			printf("Game ended in a draw\n");
 		} else {
@@ -320,8 +334,6 @@ int main(int argc, char const *argv[]) {
 	} else { /* child code */
 		/* seed must be different for each process */
 		srand(time(NULL) + pros_ind);
-		printf("Child with PID %d and index %d created\n",
-						getpid(), pros_ind);
 		int target, target_sold, my_sold, last_child, in_damage, offset;
 		int atk_pts = 0;
 		/* semaphore for 6 farmers */
@@ -371,6 +383,8 @@ int main(int argc, char const *argv[]) {
 			s_arg_arr[i]->mutex_res_arr = mutex_res_arr;
 			s_arg_arr[i]->eat_arr = eat_arr;
 			s_arg_arr[i]->mutex_eat_arr = mutex_eat_arr;
+			s_arg_arr[i]->lives_arr = lives_arr;
+			s_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
 		}
 		/* create the farmer threads */
 		for(i=0; i<Y; i++) {
@@ -381,7 +395,7 @@ int main(int argc, char const *argv[]) {
 			assert(pthread_create(sold_t + i, NULL, sold, (void *) s_arg_arr[i]) == 0);
 		}
 		while(1) {
-			usleep(700000);
+			usleep(200000);
 			/* wake the soldiers */
 			for(i=0; i<Y; i++) {
 				pthread_mutex_lock(mutex_eat_arr+i);
@@ -401,20 +415,20 @@ int main(int argc, char const *argv[]) {
 			}
 			/* choose the victim */
 			/* read from shared memory using mutex */
-			pthread_mutex_lock(mutex_shm_sold);
 			offset = rand() % X;
 			last_child = 1;
 			for(i=0; i<X; i++) {
 				target = (i + offset) % X;
 				/* find out number of remaining soldiers */
+				pthread_mutex_lock(mutex_shm_sold);
 				target_sold = shm_sold[target];
+				pthread_mutex_unlock(mutex_shm_sold);
 				/* no suicide or mutilation permitted */
 				if((target != pros_ind) && (target_sold > 0)) {
 					last_child = 0;
 					break;
 				}
 			}
-			pthread_mutex_unlock(mutex_shm_sold);
 			if(last_child) {
 				printf("Winner detected\n");
 				/* send "attack" of -1 to tell parent that it's won */
@@ -428,11 +442,11 @@ int main(int argc, char const *argv[]) {
 			shm_atk[pros_ind][1] += atk_pts;
 			shm_atk[pros_ind][2] = target;
 			pthread_mutex_unlock(mutex_shm_atk);
-			printf("Child %d sends attack of %d to %d\n",
-					pros_ind, atk_pts, target);
+			printf("Child %d attacks %d with %d points\n",
+					pros_ind, target, atk_pts);
 
 			/* wait for parent to process the attacks */
-			usleep(200000);
+			usleep(600000);
 
 			/* receive the attack */
 			pthread_mutex_lock(mutex_shm_atk);
@@ -447,6 +461,14 @@ int main(int argc, char const *argv[]) {
 				while((0<lives_arr[i]) && (0<in_damage)) {
 					lives_arr[i]--;
 					in_damage--;
+					if(lives_arr[i] == 0) {
+						/* wake the thread so it can end */
+						/* pthread_end interferes with synchronization */
+						pthread_mutex_lock(mutex_eat_arr+i);
+						eat_arr[i] = 1;
+						pthread_mutex_unlock(mutex_eat_arr+i);
+						printf("Soldier thread #%d finished.\n", i);
+					}
 				}
 				pthread_mutex_unlock(mutex_lives_arr+i);
 			}
@@ -456,10 +478,8 @@ int main(int argc, char const *argv[]) {
 			for(i=0; i<Y; i++) {
 				pthread_mutex_lock(mutex_lives_arr+i);
 				/* count the lives */
-				if(lives_arr[i] > 0) {
+				if(lives_arr[i] > 0)
 					my_sold++;
-					pthread_mutex_unlock(mutex_lives_arr+i);
-				}
 				pthread_mutex_unlock(mutex_lives_arr+i);
 			}
 			pthread_mutex_lock(mutex_shm_sold);
@@ -469,18 +489,18 @@ int main(int argc, char const *argv[]) {
 			if(!(0<my_sold)) {
 				break;
 			} else {
-				printf("Checking other children\n");
 				last_child = 1;
 				/* check number of alive children */
-				pthread_mutex_lock(mutex_shm_sold);
 				for(i=0; i<X; i++) {
 					/* find out number of remaining soldiers */
+					pthread_mutex_lock(mutex_shm_sold);
 					if((i != pros_ind) && (0 < shm_sold[i])) {
+						pthread_mutex_unlock(mutex_shm_sold);
 						last_child = 0;
 						break;
 					}
+					pthread_mutex_unlock(mutex_shm_sold);
 				}
-				pthread_mutex_unlock(mutex_shm_sold);
 				if(last_child) {
 					printf("Winner detected\n");
 					/* send "attack" of -1 to tell parent that it's won */
@@ -490,12 +510,15 @@ int main(int argc, char const *argv[]) {
 					break;
 				}
 			}
+			usleep(100000);
 		}
-		printf("Child %d is ending\n", pros_ind);
+		printf("Child %d begins closing\n", pros_ind);
 		/* wait for threads to complete */
 		for(i=0; i<Y; i++) {
-			pthread_cancel(farm_t[i]);
-			pthread_cancel(sold_t[i]);
+			if(pthread_cancel(farm_t[i]) == 0)
+				printf("Farmer thread #%d finished.\n", i);
+			if(pthread_cancel(sold_t[i]) == 0)
+				printf("Soldier thread #%d finished.\n", i);
 		}
 		for(i=0; i<Y; i++) {
 			pthread_join(farm_t[i], NULL);
@@ -512,8 +535,7 @@ int main(int argc, char const *argv[]) {
 			free(f_arg_arr[i]);
 			free(s_arg_arr[i]);
 		}
-
-
+		printf("Child %d ends closing\n", pros_ind);
 	}
 	return(0);
 }
