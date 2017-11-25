@@ -87,7 +87,7 @@ int main(int argc, char const *argv[]) {
 			NULL, 3*X*16, PROT_WRITE | PROT_READ,
 			MAP_SHARED | MAP_ANONYMOUS, fd_shm_atk, 0);
 	/* i: child sending attack */
-	/* j=0: attack points; j=1: attack target; j=2: received damage */
+	/* j=0: received damage; j=1: attack points; j=2: attack target;  */
 	for(i=0; i<X; i++)
 		for(j=0; j<3; j++)
 			shm_atk[i][j] = 0;
