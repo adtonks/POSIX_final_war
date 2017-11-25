@@ -32,8 +32,6 @@ typedef struct s_arg {
 	pthread_mutex_t *mutex_res_arr;
 	int *eat_arr;
 	pthread_mutex_t *mutex_eat_arr;
-	int *lives_arr;
-	pthread_mutex_t *mutex_lives_arr;
 	pthread_cond_t *cond_eat_arr;
 } S_arg;
 
@@ -60,7 +58,7 @@ void *farm (void *in_arg) {
 	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
 	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
 	int target_sol, i;
-	int f_ms, f_mus;
+	int f_ms;
 	while(1) {
 		sem_wait(sem_ptr);
 		/* begin critical section */
@@ -96,8 +94,6 @@ void *sold (void *in_arg) {
 	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
 	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
 	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
-	int *lives_arr = ((S_arg *) in_arg)->lives_arr;
-	pthread_mutex_t *mutex_lives_arr = ((S_arg *) in_arg)->mutex_lives_arr;
 	pthread_cond_t *cond_eat_arr = ((S_arg *) in_arg)->cond_eat_arr;
 	/* loop through the sleep-eat-attack loop */
 	while(1) {
@@ -145,7 +141,12 @@ int check_no(const char *input) {
 
 int main(int argc, char const *argv[]) {
 	int i, j, X, Y, pros_ind, target;
+	/* setup time variables */
+	char time_buff[30];
+	time_t time_raw;
+	struct tm *time_now;
 	pthread_mutexattr_t attr_mutex;
+	FILE *fp;
 	if(argc != 5) {
 		printf("Command line arguments incorrect\n");
 		return(1);
@@ -240,9 +241,13 @@ int main(int argc, char const *argv[]) {
 	if(children[X-1] != 0) {
 		int game_on = 1;
 		int draw = 1;
+		int child_dead[X];
+		fp = fopen("log.txt", "w");
+		for(i=0; i<X; i++)
+			child_dead[i] = 0;
 		while(game_on) {
 			usleep(100000);
-			/* check if child has won */
+			/* check if child has won or draw occured */
 			game_on = 0;
 			for(i=0; i<X; i++) {
 				pthread_mutex_lock(mutex_shm_sold);
@@ -263,22 +268,47 @@ int main(int argc, char const *argv[]) {
 			}
 			if(!game_on)
 				break;
-			printf("### BEGIN ROUND ###\n");
-			printf("Soldiers remaining:");
+			fprintf(fp, "### BEGIN ROUND ###\n");
+			fprintf(fp, "Soldiers remaining and attacks sent:\n");
+			fprintf(fp, "Child ID : ");
+			for(i=0; i<X; i++)
+				fprintf(fp, "|%02d| ", i);
+			fprintf(fp, "\n");
+			fprintf(fp, "Soldiers : ");
 			pthread_mutex_lock(mutex_shm_sold);
 			for(i=0; i<X; i++)
-				printf(" [%d]", shm_sold[i]);
-			printf("\n");
+				fprintf(fp, "|%02d| ", shm_sold[i]);
+			fprintf(fp, "\n");
 			pthread_mutex_unlock(mutex_shm_sold);
 
-			printf("2 Attacks sent:");
-			pthread_mutex_lock(mutex_shm_atk);
-			for(i=0; i<X; i++)
-				printf(" [%d]", shm_atk[i][1]);
-			printf("\n");
-			pthread_mutex_unlock(mutex_shm_atk);
-
+			/* wait to receive attack data */
 			usleep(500000);
+
+			/* check if child has won */
+			game_on = 1;
+			for(i=0; i<X; i++) {
+				pthread_mutex_lock(mutex_shm_atk);
+				if(shm_atk[i][1] == -1) {
+					game_on = 0;
+					draw = 0;
+					pthread_mutex_unlock(mutex_shm_atk);
+					break;
+				}
+				pthread_mutex_unlock(mutex_shm_atk);
+			}
+			if(!game_on)
+				break;
+
+			pthread_mutex_lock(mutex_shm_atk);
+			fprintf(fp, "Target   : ");
+			for(i=0; i<X; i++)
+				fprintf(fp, "|%02d| ", shm_atk[i][2]);
+			fprintf(fp, "\n");
+			fprintf(fp, "Points   : ");
+			for(i=0; i<X; i++)
+				fprintf(fp, "|%02d| ", shm_atk[i][1]);
+			fprintf(fp, "\n");
+			pthread_mutex_unlock(mutex_shm_atk);
 
 			/* check if child has won (safeguard for mis-synchronization) */
 			game_on = 0;
@@ -301,6 +331,9 @@ int main(int argc, char const *argv[]) {
 			}
 			if(!game_on)
 				break;
+			time(&time_raw);
+			time_now = localtime(&time_raw);
+			strftime(time_buff, 30, "%d %b %H:%M:%S", time_now);
 
 			/* calculate the damages */
 			for(i=0; i<X; i++) {
@@ -314,25 +347,29 @@ int main(int argc, char const *argv[]) {
 						if(shm_atk[i][1] > shm_atk[target][1]) {
 							shm_atk[target][3] +=
 									shm_atk[i][1] - shm_atk[target][1];
-							printf("Child %d damages %d with %d points\n",
-									i, target, shm_atk[target][3]);
+							fprintf(fp, "%s\n", time_buff);
+							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
+									i, shm_atk[target][3], target);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else if(shm_atk[i][1] < shm_atk[target][1]) {
 							/* points equal or opponent higher */
 							shm_atk[i][3] +=
 									shm_atk[target][1] - shm_atk[i][1];
-							printf("Child %d damages %d with %d points\n",
-									target, i, shm_atk[i][3]);
+							fprintf(fp, "%s\n", time_buff);
+							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
+									target, shm_atk[i][3], i);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else {
+							/* atacks are equal */
 							shm_atk[target][1] = 0;
 						}
 					} else {
 						shm_atk[target][3] += shm_atk[i][1];
-						printf("Child %d damages %d with %d points\n",
-								i, target, shm_atk[target][3]);
+						fprintf(fp, "%s\n", time_buff);
+						fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
+								i, shm_atk[target][3], target);
 					}
 					/* reset attack points */
 					shm_atk[i][1] = 0;
@@ -340,17 +377,52 @@ int main(int argc, char const *argv[]) {
 				pthread_mutex_unlock(mutex_shm_atk);
 				pthread_mutex_unlock(mutex_shm_sold);
 			}
+
+			/* wait for killed children to die */
 			usleep(400000);
-			printf("### END ROUND ###\n");
+
+			for(i=0; i<X; i++) {
+				pthread_mutex_lock(mutex_shm_sold);
+				if((shm_sold[i] == 0) && (child_dead[i] == 0)) {
+					time(&time_raw);
+					time_now = localtime(&time_raw);
+					strftime(time_buff, 30, "%d %b %H:%M:%S", time_now);
+					/* print to log file */
+					fprintf(fp, "%s\n", time_buff);
+					fprintf(fp, "Child %02d with PID %d has died.\n",
+							i, children[i]);
+					/* print to terminal */
+					printf("Child %02d with PID %d has died.\n",
+							i, children[i]);
+					child_dead[i] = 1;
+				}
+				pthread_mutex_unlock(mutex_shm_sold);
+			}
+			fprintf(fp, "### END ROUND ###\n");
 		}
 		if(draw) {
+			/* print to log file */
+			fprintf(fp, "%s\n", time_buff);
+			fprintf(fp, "Game ended in a draw\n");
+			/* print to terminal */
 			printf("Game ended in a draw\n");
 		} else {
-			printf("Child %d with PID %d has won\n", i, children[i]);
+			time(&time_raw);
+			time_now = localtime(&time_raw);
+			strftime(time_buff, 30, "%d %b %H:%M:%S", time_now);
+			/* print to log file */
+			fprintf(fp, "%s\n", time_buff);
+			fprintf(fp, "Child %02d with PID %d has won the game!\n",
+					i, children[i]);
+			/* print to terminal */
+			printf("Child %02d with PID %d has won the game!\n",
+					i, children[i]);
 		}
 
 		/* small delay to prevent orphan processes */
 		usleep(100000);
+		/* close the log file */
+		fclose(fp);
 		/* unlink file descriptors */
 		unlink(name_shm_sold);
 		unlink(name_mutex_shm_sold);
@@ -423,8 +495,6 @@ int main(int argc, char const *argv[]) {
 			s_arg_arr[i]->mutex_res_arr = mutex_res_arr;
 			s_arg_arr[i]->eat_arr = eat_arr;
 			s_arg_arr[i]->mutex_eat_arr = mutex_eat_arr;
-			s_arg_arr[i]->lives_arr = lives_arr;
-			s_arg_arr[i]->mutex_lives_arr = mutex_lives_arr;
 			s_arg_arr[i]->cond_eat_arr = cond_eat_arr;
 		}
 
@@ -478,7 +548,6 @@ int main(int argc, char const *argv[]) {
 			}
 
 			if(last_child) {
-				printf("Winner detected\n");
 				/* send "attack" of -1 to tell parent that it's won */
 				pthread_mutex_lock(mutex_shm_atk);
 				shm_atk[pros_ind][1] = -1;
@@ -492,8 +561,6 @@ int main(int argc, char const *argv[]) {
 			shm_atk[pros_ind][1] += atk_pts;
 			shm_atk[pros_ind][2] = target;
 			pthread_mutex_unlock(mutex_shm_atk);
-			printf("Child %d attacks %d with %d points\n",
-					pros_ind, target, atk_pts);
 
 			/* wait for parent to process the attacks */
 			usleep(600000);
@@ -503,7 +570,6 @@ int main(int argc, char const *argv[]) {
 			in_damage = shm_atk[pros_ind][3];
 			shm_atk[pros_ind][3] = 0;
 			pthread_mutex_unlock(mutex_shm_atk);
-			printf("Child %d receives %d damage\n", pros_ind, in_damage);
 			/* assign damage sequentially */
 			for(i=0; (i<Y) && (0<in_damage); i++) {
 				pthread_mutex_lock(mutex_lives_arr+i);
@@ -518,7 +584,8 @@ int main(int argc, char const *argv[]) {
 						eat_arr[i] = 2;
 						pthread_cond_broadcast(cond_eat_arr+i);
 						pthread_mutex_unlock(mutex_eat_arr+i);
-						printf("Soldier thread #%d finished.\n", i);
+						printf("Child %02d: Soldier thread #%02d finished.\n",
+								pros_ind, i);
 					}
 				}
 				pthread_mutex_unlock(mutex_lives_arr+i);
@@ -554,7 +621,6 @@ int main(int argc, char const *argv[]) {
 					pthread_mutex_unlock(mutex_shm_sold);
 				}
 				if(last_child) {
-					printf("Winner detected\n");
 					/* send "attack" of -1 to tell parent that it's won */
 					pthread_mutex_lock(mutex_shm_atk);
 					shm_atk[pros_ind][1] = -1;
@@ -565,20 +631,27 @@ int main(int argc, char const *argv[]) {
 			}
 			usleep(100000);
 		}
-		printf("Child %d begins closing\n", pros_ind);
 		/* close the farmer threads */
 		for(i=0; i<Y; i++) {
 			if(pthread_cancel(farm_t[i]) == 0)
-				printf("Farmer thread #%d finished.\n", i);
+				printf("Child %02d: Farmer thread #%02d finished.\n",
+						pros_ind, i);
 		}
 
 		/* close soldiers if not all are dead */
 		if(is_winner) {
 			for(i=0; i<Y; i++) {
 				if(pthread_cancel(sold_t[i]) == 0)
-					printf("Soldier thread #%d finished.\n", i);
+					printf("Child %02d: Soldier thread #%02d finished.\n",
+							pros_ind, i);
 			}
 		}
+
+		/* reset the attack target and points */
+		pthread_mutex_lock(mutex_shm_atk);
+		shm_atk[pros_ind][2] = 0;
+		shm_atk[pros_ind][3] = 0;
+		pthread_mutex_unlock(mutex_shm_atk);
 
 		/* wait for threads to cleanup */
 		usleep(100000);
@@ -599,7 +672,6 @@ int main(int argc, char const *argv[]) {
 			free(f_arg_arr[i]);
 			free(s_arg_arr[i]);
 		}
-		printf("Child %d ends closing\n", pros_ind);
 	}
 	return(0);
 }
