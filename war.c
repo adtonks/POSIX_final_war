@@ -14,130 +14,7 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-
-/* use a struct to pass arguments; dispenses with global variables */
-typedef struct f_arg {
-	int Y;
-	int index;
-	sem_t *sem_ptr;
-	int *res_arr;
-	pthread_mutex_t *mutex_res_arr;
-	int *lives_arr;
-	pthread_mutex_t *mutex_lives_arr;
-} F_arg;
-
-typedef struct s_arg {
-	int index;
-	int *res_arr;
-	pthread_mutex_t *mutex_res_arr;
-	int *eat_arr;
-	pthread_mutex_t *mutex_eat_arr;
-	pthread_cond_t *cond_eat_arr;
-} S_arg;
-
-void tonks_sleep(int f_mus) {
-	/* sleep function for fractional seconds */
-	int secs = 0;
-	if(f_mus<1)
-		return;
-	while(f_mus>1000000) {
-		secs++;
-		f_mus -= 1000000;
-	}
-	sleep(secs);
-	usleep(f_mus);
-	return;
-}
-
-void *farm (void *in_arg) {
-	int Y = ((F_arg *) in_arg)->Y;
-	int index = ((F_arg *) in_arg)->index;
-	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
-	int *res_arr = ((F_arg *) in_arg)->res_arr;
-	pthread_mutex_t *mutex_res_arr = ((F_arg *) in_arg)->mutex_res_arr;
-	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
-	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
-	int target_sol, i;
-	int f_ms;
-	while(1) {
-		sem_wait(sem_ptr);
-		/* begin critical section */
-		/* the farmer has been woken up, to farm for f_ms milliseconds */
-		f_ms = 400 + (rand()%1800);
-		/* produce the resource */
-		tonks_sleep(f_ms*1000);
-		/* end critical section */
-		sem_post(sem_ptr);
-		/* small sleep to reduce chance that semaphore is re-taken */
-		usleep(5000);
-		/* find the target soldier - which is the next non-dead one */
-		for(i=index; i<index+Y; i++) {
-			target_sol = i%Y;
-			pthread_mutex_lock(mutex_lives_arr+target_sol);
-			if(lives_arr[target_sol] > 0) {
-				pthread_mutex_unlock(mutex_lives_arr+target_sol);
-				break;
-			}
-			pthread_mutex_unlock(mutex_lives_arr+target_sol);
-		}
-		/* increment that resource */
-		pthread_mutex_lock(mutex_res_arr+target_sol);
-		res_arr[target_sol]++;
-		pthread_mutex_unlock(mutex_res_arr+target_sol);
-	}
-	return(NULL);
-}
-
-void *sold (void *in_arg) {
-	int index = ((S_arg *) in_arg)->index;
-	int *res_arr = ((S_arg *) in_arg)->res_arr;
-	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
-	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
-	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
-	pthread_cond_t *cond_eat_arr = ((S_arg *) in_arg)->cond_eat_arr;
-	/* loop through the sleep-eat-attack loop */
-	while(1) {
-		/* block until eating time (soldier is "sleeping") */
-		/* use a condition variable for reliability */
-		pthread_mutex_lock(mutex_eat_arr+index);
-		while(eat_arr[index] < 1) {
-			pthread_cond_wait(cond_eat_arr+index, mutex_eat_arr+index);
-		}
-		pthread_mutex_unlock(mutex_eat_arr+index);
-
-		/* end the thread if soldier has been signalled to die */
-		pthread_mutex_lock(mutex_eat_arr+index);
-		if(eat_arr[index] == 2) {
-			pthread_mutex_unlock(mutex_eat_arr+index);
-			pthread_exit(NULL);
-		}
-		pthread_mutex_unlock(mutex_eat_arr+index);
-
-		/* try to eat the resource */
-		pthread_mutex_lock(mutex_eat_arr+index);
-		pthread_mutex_lock(mutex_res_arr+index);
-		eat_arr[index] = 0;
-		while(res_arr[index] > 0) {
-			res_arr[index]--;
-			/* write attack to eat array */
-			eat_arr[index]--;
-		}
-		pthread_mutex_unlock(mutex_res_arr+index);
-		pthread_mutex_unlock(mutex_eat_arr+index);
-	}
-	return(NULL);
-}
-
-/* IMPORTANT: this function was originally written for scheduler.c */
-int check_no(const char *input) {
-	int i;
-	int len = strlen(input);
-	for(i=0; i<len; i++) {
-		if(((int) input[i] < 48) || (57 < (int) input[i]))
-			return(0);
-	}
-	return(1);
-}
+#include "war.h"
 
 int main(int argc, char const *argv[]) {
 	int i, j, X, Y, pros_ind, target;
@@ -411,6 +288,7 @@ int main(int argc, char const *argv[]) {
 			time_now = localtime(&time_raw);
 			strftime(time_buff, 30, "%d %b %H:%M:%S", time_now);
 			/* print to log file */
+			fprintf(fp, "### END ROUND ###\n\n");
 			fprintf(fp, "%s\n", time_buff);
 			fprintf(fp, "Child %02d with PID %d has won the game!\n",
 					i, children[i]);
@@ -604,31 +482,6 @@ int main(int argc, char const *argv[]) {
 			shm_sold[pros_ind] = my_sold;
 			pthread_mutex_unlock(mutex_shm_sold);
 
-			/* end process if all soldiers dead or this is last child */
-			if(!(0<my_sold)) {
-				break;
-			} else {
-				last_child = 1;
-				/* check number of alive children */
-				for(i=0; i<X; i++) {
-					/* find out number of remaining soldiers */
-					pthread_mutex_lock(mutex_shm_sold);
-					if((i != pros_ind) && (0 < shm_sold[i])) {
-						pthread_mutex_unlock(mutex_shm_sold);
-						last_child = 0;
-						break;
-					}
-					pthread_mutex_unlock(mutex_shm_sold);
-				}
-				if(last_child) {
-					/* send "attack" of -1 to tell parent that it's won */
-					pthread_mutex_lock(mutex_shm_atk);
-					shm_atk[pros_ind][1] = -1;
-					is_winner = 1;
-					pthread_mutex_unlock(mutex_shm_atk);
-					break;
-				}
-			}
 			usleep(100000);
 		}
 		/* close the farmer threads */
@@ -674,4 +527,108 @@ int main(int argc, char const *argv[]) {
 		}
 	}
 	return(0);
+}
+
+void tonks_sleep(int f_mus) {
+	/* sleep function for fractional seconds */
+	int secs = 0;
+	if(f_mus<1)
+		return;
+	while(f_mus>1000000) {
+		secs++;
+		f_mus -= 1000000;
+	}
+	sleep(secs);
+	usleep(f_mus);
+	return;
+}
+
+void *farm (void *in_arg) {
+	int Y = ((F_arg *) in_arg)->Y;
+	int index = ((F_arg *) in_arg)->index;
+	sem_t *sem_ptr = ((F_arg *) in_arg)->sem_ptr;
+	int *res_arr = ((F_arg *) in_arg)->res_arr;
+	pthread_mutex_t *mutex_res_arr = ((F_arg *) in_arg)->mutex_res_arr;
+	int *lives_arr = ((F_arg *) in_arg)->lives_arr;
+	pthread_mutex_t *mutex_lives_arr = ((F_arg *) in_arg)->mutex_lives_arr;
+	int target_sol, i;
+	int f_ms;
+	while(1) {
+		sem_wait(sem_ptr);
+		/* begin critical section */
+		/* the farmer has been woken up, to farm for f_ms milliseconds */
+		f_ms = 400 + (rand()%1800);
+		/* produce the resource */
+		tonks_sleep(f_ms*1000);
+		/* end critical section */
+		sem_post(sem_ptr);
+		/* small sleep to reduce chance that semaphore is re-taken */
+		usleep(5000);
+		/* find the target soldier - which is the next non-dead one */
+		for(i=index; i<index+Y; i++) {
+			target_sol = i%Y;
+			pthread_mutex_lock(mutex_lives_arr+target_sol);
+			if(lives_arr[target_sol] > 0) {
+				pthread_mutex_unlock(mutex_lives_arr+target_sol);
+				break;
+			}
+			pthread_mutex_unlock(mutex_lives_arr+target_sol);
+		}
+		/* increment that resource */
+		pthread_mutex_lock(mutex_res_arr+target_sol);
+		res_arr[target_sol]++;
+		pthread_mutex_unlock(mutex_res_arr+target_sol);
+	}
+	return(NULL);
+}
+
+void *sold (void *in_arg) {
+	int index = ((S_arg *) in_arg)->index;
+	int *res_arr = ((S_arg *) in_arg)->res_arr;
+	pthread_mutex_t *mutex_res_arr = ((S_arg *) in_arg)->mutex_res_arr;
+	int *eat_arr = ((S_arg *) in_arg)->eat_arr;
+	pthread_mutex_t *mutex_eat_arr = ((S_arg *) in_arg)->mutex_eat_arr;
+	pthread_cond_t *cond_eat_arr = ((S_arg *) in_arg)->cond_eat_arr;
+	/* loop through the sleep-eat-attack loop */
+	while(1) {
+		/* block until eating time (soldier is "sleeping") */
+		/* use a condition variable for reliability */
+		pthread_mutex_lock(mutex_eat_arr+index);
+		while(eat_arr[index] < 1) {
+			pthread_cond_wait(cond_eat_arr+index, mutex_eat_arr+index);
+		}
+		pthread_mutex_unlock(mutex_eat_arr+index);
+
+		/* end the thread if soldier has been signalled to die */
+		pthread_mutex_lock(mutex_eat_arr+index);
+		if(eat_arr[index] == 2) {
+			pthread_mutex_unlock(mutex_eat_arr+index);
+			pthread_exit(NULL);
+		}
+		pthread_mutex_unlock(mutex_eat_arr+index);
+
+		/* try to eat the resource */
+		pthread_mutex_lock(mutex_eat_arr+index);
+		pthread_mutex_lock(mutex_res_arr+index);
+		eat_arr[index] = 0;
+		while(res_arr[index] > 0) {
+			res_arr[index]--;
+			/* write attack to eat array */
+			eat_arr[index]--;
+		}
+		pthread_mutex_unlock(mutex_res_arr+index);
+		pthread_mutex_unlock(mutex_eat_arr+index);
+	}
+	return(NULL);
+}
+
+/* IMPORTANT: this function was originally written for scheduler.c */
+int check_no(const char *input) {
+	int i;
+	int len = strlen(input);
+	for(i=0; i<len; i++) {
+		if(((int) input[i] < 48) || (57 < (int) input[i]))
+			return(0);
+	}
+	return(1);
 }
