@@ -226,7 +226,7 @@ int main(int argc, char const *argv[]) {
 									shm_atk[i][1] - shm_atk[target][1];
 							fprintf(fp, "%s\n", time_buff);
 							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-									i, shm_atk[target][0], target);
+									i, shm_atk[i][1] - shm_atk[target][1], target);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else if(shm_atk[i][1] < shm_atk[target][1]) {
@@ -235,7 +235,7 @@ int main(int argc, char const *argv[]) {
 									shm_atk[target][1] - shm_atk[i][1];
 							fprintf(fp, "%s\n", time_buff);
 							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-									target, shm_atk[i][0], i);
+									target, shm_atk[target][1] - shm_atk[i][1], i);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else {
@@ -246,7 +246,7 @@ int main(int argc, char const *argv[]) {
 						shm_atk[target][0] += shm_atk[i][1];
 						fprintf(fp, "%s\n", time_buff);
 						fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-								i, shm_atk[target][0], target);
+								i, shm_atk[i][1], target);
 					}
 					/* reset attack points */
 					shm_atk[i][1] = 0;
@@ -278,6 +278,9 @@ int main(int argc, char const *argv[]) {
 			fprintf(fp, "### END ROUND ###\n\n");
 		}
 		if(draw) {
+			time(&time_raw);
+			time_now = localtime(&time_raw);
+			strftime(time_buff, 30, "%d %b %H:%M:%S", time_now);
 			/* print to log file */
 			fprintf(fp, "%s\n", time_buff);
 			fprintf(fp, "Game ended in a draw\n");
