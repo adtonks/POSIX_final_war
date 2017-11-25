@@ -345,20 +345,20 @@ int main(int argc, char const *argv[]) {
 					if(shm_atk[target][2] == i) {
 						/* children attack each other */
 						if(shm_atk[i][1] > shm_atk[target][1]) {
-							shm_atk[target][3] +=
+							shm_atk[target][0] +=
 									shm_atk[i][1] - shm_atk[target][1];
 							fprintf(fp, "%s\n", time_buff);
 							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-									i, shm_atk[target][3], target);
+									i, shm_atk[target][0], target);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else if(shm_atk[i][1] < shm_atk[target][1]) {
 							/* points equal or opponent higher */
-							shm_atk[i][3] +=
+							shm_atk[i][0] +=
 									shm_atk[target][1] - shm_atk[i][1];
 							fprintf(fp, "%s\n", time_buff);
 							fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-									target, shm_atk[i][3], i);
+									target, shm_atk[i][0], i);
 							/* reset attack points */
 							shm_atk[target][1] = 0;
 						} else {
@@ -366,10 +366,10 @@ int main(int argc, char const *argv[]) {
 							shm_atk[target][1] = 0;
 						}
 					} else {
-						shm_atk[target][3] += shm_atk[i][1];
+						shm_atk[target][0] += shm_atk[i][1];
 						fprintf(fp, "%s\n", time_buff);
 						fprintf(fp, "Child %02d inflicts %d damage on %02d.\n",
-								i, shm_atk[target][3], target);
+								i, shm_atk[target][0], target);
 					}
 					/* reset attack points */
 					shm_atk[i][1] = 0;
@@ -398,7 +398,7 @@ int main(int argc, char const *argv[]) {
 				}
 				pthread_mutex_unlock(mutex_shm_sold);
 			}
-			fprintf(fp, "### END ROUND ###\n");
+			fprintf(fp, "### END ROUND ###\n\n");
 		}
 		if(draw) {
 			/* print to log file */
@@ -567,8 +567,8 @@ int main(int argc, char const *argv[]) {
 
 			/* receive the attack */
 			pthread_mutex_lock(mutex_shm_atk);
-			in_damage = shm_atk[pros_ind][3];
-			shm_atk[pros_ind][3] = 0;
+			in_damage = shm_atk[pros_ind][0];
+			shm_atk[pros_ind][0] = 0;
 			pthread_mutex_unlock(mutex_shm_atk);
 			/* assign damage sequentially */
 			for(i=0; (i<Y) && (0<in_damage); i++) {
@@ -650,7 +650,7 @@ int main(int argc, char const *argv[]) {
 		/* reset the attack target and points */
 		pthread_mutex_lock(mutex_shm_atk);
 		shm_atk[pros_ind][2] = 0;
-		shm_atk[pros_ind][3] = 0;
+		shm_atk[pros_ind][0] = 0;
 		pthread_mutex_unlock(mutex_shm_atk);
 
 		/* wait for threads to cleanup */

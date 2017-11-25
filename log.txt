@@ -5,162 +5,112 @@ Soldiers : |03| |03| |03|
 Target   : |01| |02| |00| 
 Points   : |00| |00| |00| 
 ### END ROUND ###
+
 ### BEGIN ROUND ###
 Soldiers remaining and attacks sent:
 Child ID : |00| |01| |02| 
 Soldiers : |03| |03| |03| 
-Target   : |01| |02| |00| 
-Points   : |00| |00| |02| 
-25 Nov 20:39:34
-Child 02 inflicts 2 damage on 00.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |03| |03| |03| 
-Target   : |01| |00| |00| 
-Points   : |03| |05| |01| 
-25 Nov 20:39:35
-Child 01 inflicts 2 damage on 00.
-25 Nov 20:39:35
-Child 02 inflicts 3 damage on 00.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |02| |03| |03| 
-Target   : |01| |02| |00| 
-Points   : |01| |01| |03| 
-25 Nov 20:39:36
-Child 00 inflicts 1 damage on 01.
-25 Nov 20:39:36
-Child 01 inflicts 1 damage on 02.
-25 Nov 20:39:36
-Child 02 inflicts 3 damage on 00.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |01| |03| |03| 
-Target   : |02| |00| |01| 
-Points   : |02| |01| |01| 
-25 Nov 20:39:37
-Child 00 inflicts 2 damage on 02.
-25 Nov 20:39:37
-Child 01 inflicts 1 damage on 00.
-25 Nov 20:39:37
-Child 02 inflicts 1 damage on 01.
-25 Nov 20:39:37
-Child 00 with PID 23039 has died.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |02| |02| 
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |04| |03| 
-25 Nov 20:39:39
-Child 01 inflicts 1 damage on 02.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |02| |02| 
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |01| |01| 
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |04| |04| 
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |03| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |01| |02| 
-25 Nov 20:39:43
-Child 02 inflicts 1 damage on 01.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |02| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |03| |02| 
-25 Nov 20:39:44
-Child 01 inflicts 1 damage on 02.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |02| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |01| |03| 
-25 Nov 20:39:45
-Child 02 inflicts 2 damage on 01.
-### END ROUND ###
-### BEGIN ROUND ###
-Soldiers remaining and attacks sent:
-Child ID : |00| |01| |02| 
-Soldiers : |00| |02| |02| 
-Target   : |00| |02| |01| 
-Points   : |00| |03| |01| 
-25 Nov 20:39:46
+Target   : |02| |02| |00| 
+Points   : |01| |02| |01| 
+25 Nov 20:46:03
 Child 01 inflicts 2 damage on 02.
 ### END ROUND ###
+
 ### BEGIN ROUND ###
 Soldiers remaining and attacks sent:
 Child ID : |00| |01| |02| 
-Soldiers : |00| |02| |01| 
-Target   : |00| |02| |01| 
-Points   : |00| |02| |01| 
-25 Nov 20:39:47
-Child 01 inflicts 1 damage on 02.
+Soldiers : |03| |03| |03| 
+Target   : |01| |02| |00| 
+Points   : |02| |02| |03| 
+25 Nov 20:46:04
+Child 00 inflicts 2 damage on 01.
+25 Nov 20:46:04
+Child 01 inflicts 2 damage on 02.
+25 Nov 20:46:04
+Child 02 inflicts 3 damage on 00.
 ### END ROUND ###
+
 ### BEGIN ROUND ###
 Soldiers remaining and attacks sent:
 Child ID : |00| |01| |02| 
-Soldiers : |00| |02| |01| 
-Target   : |00| |02| |01| 
-Points   : |00| |03| |04| 
-25 Nov 20:39:48
+Soldiers : |02| |03| |02| 
+Target   : |02| |02| |01| 
+Points   : |02| |02| |00| 
+25 Nov 20:46:05
+Child 00 inflicts 2 damage on 02.
+25 Nov 20:46:05
+Child 01 inflicts 4 damage on 02.
+### END ROUND ###
+
+### BEGIN ROUND ###
+Soldiers remaining and attacks sent:
+Child ID : |00| |01| |02| 
+Soldiers : |02| |03| |01| 
+Target   : |01| |00| |01| 
+Points   : |03| |03| |01| 
+25 Nov 20:46:06
 Child 02 inflicts 1 damage on 01.
 ### END ROUND ###
+
 ### BEGIN ROUND ###
 Soldiers remaining and attacks sent:
 Child ID : |00| |01| |02| 
-Soldiers : |00| |01| |01| 
-Target   : |00| |02| |01| 
-Points   : |00| |01| |01| 
+Soldiers : |02| |02| |01| 
+Target   : |01| |00| |01| 
+Points   : |03| |02| |02| 
+25 Nov 20:46:07
+Child 00 inflicts 1 damage on 01.
+25 Nov 20:46:07
+Child 02 inflicts 3 damage on 01.
 ### END ROUND ###
+
 ### BEGIN ROUND ###
 Soldiers remaining and attacks sent:
 Child ID : |00| |01| |02| 
-Soldiers : |00| |01| |01| 
-Target   : |00| |02| |01| 
-Points   : |00| |04| |03| 
-25 Nov 20:39:50
-Child 01 inflicts 1 damage on 02.
-25 Nov 20:39:50
-Child 02 with PID 23041 has died.
+Soldiers : |02| |01| |01| 
+Target   : |02| |00| |00| 
+Points   : |03| |01| |03| 
+25 Nov 20:46:08
+Child 01 inflicts 1 damage on 00.
 ### END ROUND ###
-25 Nov 20:39:50
-Child 01 with PID 23040 has won the game!
+
+### BEGIN ROUND ###
+Soldiers remaining and attacks sent:
+Child ID : |00| |01| |02| 
+Soldiers : |02| |01| |01| 
+Target   : |01| |02| |00| 
+Points   : |02| |02| |03| 
+25 Nov 20:46:09
+Child 00 inflicts 2 damage on 01.
+25 Nov 20:46:09
+Child 01 inflicts 2 damage on 02.
+25 Nov 20:46:09
+Child 02 inflicts 3 damage on 00.
+25 Nov 20:46:10
+Child 02 with PID 23255 has died.
+### END ROUND ###
+
+### BEGIN ROUND ###
+Soldiers remaining and attacks sent:
+Child ID : |00| |01| |02| 
+Soldiers : |01| |01| |00| 
+Target   : |01| |00| |00| 
+Points   : |00| |01| |00| 
+25 Nov 20:46:10
+Child 01 inflicts 1 damage on 00.
+### END ROUND ###
+
+### BEGIN ROUND ###
+Soldiers remaining and attacks sent:
+Child ID : |00| |01| |02| 
+Soldiers : |01| |01| |00| 
+Target   : |01| |00| |00| 
+Points   : |04| |03| |00| 
+25 Nov 20:46:11
+Child 00 inflicts 1 damage on 01.
+25 Nov 20:46:12
+Child 01 with PID 23254 has died.
+### END ROUND ###
+
+25 Nov 20:46:12
+Child 00 with PID 23253 has won the game!
